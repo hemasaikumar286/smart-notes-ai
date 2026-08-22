@@ -1,19 +1,27 @@
-const { GoogleGenAI } = require("@google/genai");
+const OpenAI = require("openai");
 
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
+const client = new OpenAI({
+  apiKey: process.env.OPENROUTER_API_KEY,
+  baseURL: "https://openrouter.ai/api/v1",
 });
 
-async function analyzeNote(content) {
-  const prompt = `
-You are an intelligent note organization assistant.
+const MODEL = "openai/gpt-4o-mini";
 
+async function analyzeNote(title, content) {
+  try {
+    const prompt = `
 Analyze the following note.
 
-Return ONLY valid JSON using this exact structure:
+Title:
+${title}
+
+Content:
+${content}
+
+Return ONLY valid JSON in this exact format:
 
 {
-  "summary": "A concise summary of the note",
+  "summary": "A short summary of the note",
   "keyPoints": [
     "Important point 1",
     "Important point 2",
@@ -27,55 +35,73 @@ Return ONLY valid JSON using this exact structure:
   "category": "Programming"
 }
 
-The category MUST be one of:
-
-Programming
-Education
-Project
-Career
-Technology
-Personal
-Business
-Other
-
 Rules:
-- Write a short and useful summary.
-- Give 3 to 5 key points.
-- Give 3 to 5 relevant tags.
-- Choose the best category.
+- summary should be concise
+- keyPoints should contain 3 to 6 important points
+- tags should contain 3 to 8 useful tags
+- category should be one of:
+  Programming,
+  Database,
+  Artificial Intelligence,
+  Machine Learning,
+  Web Development,
+  Education,
+  Business,
+  Personal,
+  Other
 - Return JSON only.
-- Do not use Markdown.
-- Do not add any explanation outside the JSON.
-
-Here is the note:
-
-${content}
 `;
 
-  const response = await ai.models.generateContent({
-    model: "gemini-3.6-flash",
-    contents: prompt,
-  });
+    const completion = await client.chat.completions.create({
+      model: MODEL,
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are an AI assistant that organizes notes. Always return valid JSON.",
+        },
+        {
+          role: "user",
+          content: prompt,
+        },
+      ],
+      temperature: 0.2,
+    });
 
-  const text = response.text.trim();
+    const text = completion.choices[0]?.message?.content;
 
-  console.log("Gemini response:");
-  console.log(text);
+    if (!text) {
+      throw new Error("AI returned an empty response");
+    }
 
-  let cleanText = text;
+    // Remove markdown code fences if the model adds them
+    const cleanedText = text
+      .replace(/^```json\s*/i, "")
+      .replace(/^```\s*/i, "")
+      .replace(/\s*```$/i, "")
+      .trim();
 
-  // Remove Markdown code fences if Gemini adds them
-  if (cleanText.startsWith("```json")) {
-    cleanText = cleanText.replace(/^```json\s*/, "");
-    cleanText = cleanText.replace(/\s*```$/, "");
-  } else if (cleanText.startsWith("```")) {
-    cleanText = cleanText.replace(/^```\s*/, "");
-    cleanText = cleanText.replace(/\s*```$/, "");
+    const result = JSON.parse(cleanedText);
+
+    return {
+      summary: result.summary || "",
+      keyPoints: Array.isArray(result.keyPoints)
+        ? result.keyPoints
+        : [],
+      tags: Array.isArray(result.tags)
+        ? result.tags
+        : [],
+      category: result.category || "Other",
+    };
+
+  } catch (error) {
+    console.error(
+      "OpenRouter AI Error:",
+      error.response?.data || error.message
+    );
+
+    throw new Error("AI analysis failed");
   }
-
-  const result = JSON.parse(cleanText);
-
-  return result;
 }
 
 module.exports = {
