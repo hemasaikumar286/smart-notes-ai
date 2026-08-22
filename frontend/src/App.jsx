@@ -17,7 +17,6 @@ function App() {
   const [showRegister, setShowRegister] = useState(false);
 
   const [notes, setNotes] = useState([]);
-
   const [selectedNote, setSelectedNote] = useState(null);
 
   const [title, setTitle] = useState("");
@@ -62,17 +61,16 @@ function App() {
         );
       }
 
-      setNotes(data);
+      setNotes(Array.isArray(data) ? data : []);
 
     } catch (error) {
       console.error("Fetch notes error:", error);
-      setError(error.message);
+      setError(error.message || "Failed to load notes");
 
     } finally {
       setLoadingNotes(false);
     }
   };
-
 
   // ==========================================
   // LOAD NOTES WHEN USER LOGS IN
@@ -83,7 +81,6 @@ function App() {
       fetchNotes();
     }
   }, [token]);
-
 
   // ==========================================
   // SELECT NOTE
@@ -96,9 +93,9 @@ function App() {
     setContent(note.content || "");
 
     setAnswer("");
+    setQuestion("");
     setError("");
   };
-
 
   // ==========================================
   // NEW NOTE
@@ -114,7 +111,6 @@ function App() {
     setQuestion("");
     setError("");
   };
-
 
   // ==========================================
   // SAVE NOTE
@@ -150,8 +146,8 @@ function App() {
         },
 
         body: JSON.stringify({
-          title,
-          content,
+          title: title.trim(),
+          content: content.trim(),
         }),
       });
 
@@ -169,6 +165,8 @@ function App() {
             note._id === data._id ? data : note
           )
         );
+
+        setSelectedNote(data);
       } else {
         setNotes((previousNotes) => [
           data,
@@ -183,26 +181,29 @@ function App() {
 
     } catch (error) {
       console.error("Save note error:", error);
-      setError(error.message);
+      setError(error.message || "Failed to save note");
 
     } finally {
       setSaving(false);
     }
   };
 
-
   // ==========================================
   // DELETE NOTE
   // ==========================================
 
   const handleDelete = async () => {
-    if (!selectedNote) return;
+    if (!selectedNote?._id) {
+      return;
+    }
 
     const confirmed = window.confirm(
       "Are you sure you want to delete this note?"
     );
 
-    if (!confirmed) return;
+    if (!confirmed) {
+      return;
+    }
 
     try {
       setDeleting(true);
@@ -237,21 +238,35 @@ function App() {
 
     } catch (error) {
       console.error("Delete note error:", error);
-      setError(error.message);
+      setError(error.message || "Failed to delete note");
 
     } finally {
       setDeleting(false);
     }
   };
 
-
   // ==========================================
-  // AI SUMMARIZE
+  // AI SUMMARIZE / ANALYZE
   // ==========================================
 
-  const handleAnalyze = async () => {
+  const handleAISummarize = async () => {
     if (!selectedNote) {
       setError("Please select a note first.");
+      return;
+    }
+
+    const noteId = selectedNote._id;
+
+    if (!noteId) {
+      console.error(
+        "Selected note has no ID:",
+        selectedNote
+      );
+
+      setError(
+        "Cannot analyze this note because the note ID is missing."
+      );
+
       return;
     }
 
@@ -259,12 +274,18 @@ function App() {
       setAnalyzing(true);
       setError("");
 
+      console.log(
+        "AI analyzing note:",
+        noteId
+      );
+
       const response = await fetch(
-        `${API_URL}/api/ai/summarize/${selectedNote._id}`,
+        `${API_URL}/api/ai/summarize/${noteId}`,
         {
           method: "POST",
 
           headers: {
+            "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
         }
@@ -272,38 +293,60 @@ function App() {
 
       const data = await response.json();
 
+      console.log(
+        "AI response:",
+        data
+      );
+
       if (!response.ok) {
         throw new Error(
-          data.message || "AI analysis failed"
+          data.message ||
+          data.error ||
+          "AI analysis failed"
         );
       }
 
-      // Update selected note
-      setSelectedNote(data);
+      if (data.note) {
+        setSelectedNote(data.note);
 
-      // Update note in list
-      setNotes((previousNotes) =>
-        previousNotes.map((note) =>
-          note._id === data._id ? data : note
-        )
+        setTitle(data.note.title || "");
+        setContent(data.note.content || "");
+
+        setNotes((previousNotes) =>
+          previousNotes.map((note) =>
+            note._id === data.note._id
+              ? data.note
+              : note
+          )
+        );
+      }
+
+      console.log(
+        "AI analysis completed successfully"
       );
 
     } catch (error) {
-      console.error("AI analysis error:", error);
-      setError(error.message);
+      console.error(
+        "AI summarize error:",
+        error
+      );
+
+      setError(
+        error.message ||
+        "AI analysis failed"
+      );
 
     } finally {
       setAnalyzing(false);
     }
   };
 
-
   // ==========================================
   // ASK AI
   // ==========================================
 
-  const handleAsk = async (e) => {
-    e.preventDefault();
+  const handleAsk = async (event) => {
+    event.preventDefault();
 
     if (!question.trim()) {
       setError("Please enter a question.");
@@ -326,7 +369,7 @@ function App() {
           },
 
           body: JSON.stringify({
-            question,
+            question: question.trim(),
           }),
         }
       );
@@ -335,7 +378,9 @@ function App() {
 
       if (!response.ok) {
         throw new Error(
-          data.message || "AI request failed"
+          data.message ||
+          data.error ||
+          "AI request failed"
         );
       }
 
@@ -347,14 +392,20 @@ function App() {
       );
 
     } catch (error) {
-      console.error("Ask AI error:", error);
-      setError(error.message);
+      console.error(
+        "Ask AI error:",
+        error
+      );
+
+      setError(
+        error.message ||
+        "AI request failed"
+      );
 
     } finally {
       setAsking(false);
     }
   };
-
 
   // ==========================================
   // AUTH LOADING
@@ -376,7 +427,6 @@ function App() {
     );
   }
 
-
   // ==========================================
   // LOGIN / REGISTER
   // ==========================================
@@ -385,18 +435,21 @@ function App() {
     if (showRegister) {
       return (
         <Register
-          onLogin={() => setShowRegister(false)}
+          onLogin={() =>
+            setShowRegister(false)
+          }
         />
       );
     }
 
     return (
       <Login
-        onRegister={() => setShowRegister(true)}
+        onRegister={() =>
+          setShowRegister(true)
+        }
       />
     );
   }
-
 
   // ==========================================
   // DASHBOARD
@@ -410,7 +463,6 @@ function App() {
       ====================================== */}
 
       <header className="border-b bg-white">
-
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
 
           <div className="flex items-center gap-3">
@@ -430,7 +482,6 @@ function App() {
             </div>
 
           </div>
-
 
           <div className="flex items-center gap-4">
 
@@ -456,9 +507,7 @@ function App() {
           </div>
 
         </div>
-
       </header>
-
 
       {/* ======================================
           MAIN
@@ -485,9 +534,7 @@ function App() {
           </div>
         )}
 
-
         <div className="grid gap-6 lg:grid-cols-12">
-
 
           {/* ==================================
               SIDEBAR
@@ -506,7 +553,9 @@ function App() {
 
                   <p className="text-xs text-slate-500">
                     {notes.length} note
-                    {notes.length !== 1 ? "s" : ""}
+                    {notes.length !== 1
+                      ? "s"
+                      : ""}
                   </p>
                 </div>
 
@@ -518,7 +567,6 @@ function App() {
                 </button>
 
               </div>
-
 
               <div className="max-h-[600px] overflow-y-auto">
 
@@ -558,18 +606,21 @@ function App() {
                           handleSelectNote(note)
                         }
                         className={`w-full p-4 text-left transition hover:bg-slate-50 ${
-                          selectedNote?._id === note._id
+                          selectedNote?._id ===
+                          note._id
                             ? "bg-slate-100"
                             : ""
                         }`}
                       >
 
                         <h3 className="truncate text-sm font-semibold text-slate-900">
-                          {note.title || "Untitled"}
+                          {note.title ||
+                            "Untitled"}
                         </h3>
 
                         <p className="mt-1 line-clamp-2 text-xs text-slate-500">
-                          {note.content || "No content"}
+                          {note.content ||
+                            "No content"}
                         </p>
 
                         {note.category && (
@@ -591,7 +642,6 @@ function App() {
             </div>
 
           </aside>
-
 
           {/* ==================================
               NOTE EDITOR
@@ -617,7 +667,6 @@ function App() {
 
                 </div>
 
-
                 {selectedNote && (
                   <button
                     onClick={handleDelete}
@@ -632,29 +681,26 @@ function App() {
 
               </div>
 
-
               <div className="p-5">
 
                 <input
                   value={title}
-                  onChange={(e) =>
-                    setTitle(e.target.value)
+                  onChange={(event) =>
+                    setTitle(event.target.value)
                   }
                   placeholder="Note title"
                   className="mb-4 w-full border-0 border-b border-slate-200 pb-3 text-xl font-semibold text-slate-900 outline-none placeholder:text-slate-300 focus:border-slate-500"
                 />
 
-
                 <textarea
                   value={content}
-                  onChange={(e) =>
-                    setContent(e.target.value)
+                  onChange={(event) =>
+                    setContent(event.target.value)
                   }
                   placeholder="Start writing your note..."
                   rows={18}
                   className="w-full resize-none border-0 text-sm leading-7 text-slate-700 outline-none placeholder:text-slate-300"
                 />
-
 
                 <div className="mt-4 flex flex-wrap gap-3">
 
@@ -670,10 +716,9 @@ function App() {
                         : "Save Note"}
                   </button>
 
-
                   {selectedNote && (
                     <button
-                      onClick={handleAnalyze}
+                      onClick={handleAISummarize}
                       disabled={analyzing}
                       className="rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                     >
@@ -689,15 +734,17 @@ function App() {
 
             </div>
 
-
             {/* =================================
                 AI ANALYSIS
             ================================= */}
 
             {selectedNote &&
-              (selectedNote.summary ||
+              (
+                selectedNote.summary ||
                 selectedNote.keyPoints?.length > 0 ||
-                selectedNote.tags?.length > 0) && (
+                selectedNote.tags?.length > 0 ||
+                selectedNote.category
+              ) && (
 
                 <div className="mt-6 rounded-2xl border bg-white shadow-sm">
 
@@ -709,8 +756,9 @@ function App() {
 
                   </div>
 
-
                   <div className="space-y-5 p-5">
+
+                    {/* SUMMARY */}
 
                     {selectedNote.summary && (
                       <div>
@@ -726,6 +774,7 @@ function App() {
                       </div>
                     )}
 
+                    {/* KEY POINTS */}
 
                     {selectedNote.keyPoints?.length > 0 && (
                       <div>
@@ -742,8 +791,13 @@ function App() {
                                 key={index}
                                 className="flex gap-2 text-sm text-slate-600"
                               >
-                                <span>•</span>
-                                <span>{point}</span>
+                                <span>
+                                  •
+                                </span>
+
+                                <span>
+                                  {point}
+                                </span>
                               </li>
                             )
                           )}
@@ -753,6 +807,7 @@ function App() {
                       </div>
                     )}
 
+                    {/* TAGS */}
 
                     {selectedNote.tags?.length > 0 && (
                       <div>
@@ -769,7 +824,7 @@ function App() {
                                 key={index}
                                 className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700"
                               >
-                                #{tag}
+                                {tag}
                               </span>
                             )
                           )}
@@ -779,6 +834,7 @@ function App() {
                       </div>
                     )}
 
+                    {/* CATEGORY */}
 
                     {selectedNote.category && (
                       <div>
@@ -787,7 +843,7 @@ function App() {
                           Category
                         </h3>
 
-                        <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-medium text-white">
+                        <span className="inline-block rounded-full bg-slate-900 px-3 py-1 text-xs font-medium text-white">
                           {selectedNote.category}
                         </span>
 
@@ -797,88 +853,68 @@ function App() {
                   </div>
 
                 </div>
-
               )}
 
           </section>
 
-
           {/* ==================================
-              ASK AI
+              ASK MY NOTES
           ================================== */}
 
-          <section className="lg:col-span-4">
+          <aside className="lg:col-span-4">
 
             <div className="rounded-2xl border bg-white shadow-sm">
 
               <div className="border-b p-5">
 
-                <div className="mb-1 flex items-center gap-2">
+                <h2 className="font-semibold text-slate-900">
+                  🤖 Ask My Notes
+                </h2>
 
-                  <span className="text-xl">
-                    🤖
-                  </span>
-
-                  <h2 className="font-semibold text-slate-900">
-                    Ask My Notes
-                  </h2>
-
-                </div>
-
-                <p className="text-xs leading-5 text-slate-500">
-                  Ask questions about your notes. AI will search your knowledge base and answer using your information.
+                <p className="mt-1 text-xs leading-5 text-slate-500">
+                  Ask questions about your notes.
+                  AI will search your knowledge base
+                  and answer using your information.
                 </p>
 
               </div>
 
-
               <div className="p-5">
 
-                <form
-                  onSubmit={handleAsk}
-                  className="space-y-3"
-                >
+                <form onSubmit={handleAsk}>
 
                   <textarea
                     value={question}
-                    onChange={(e) =>
-                      setQuestion(e.target.value)
+                    onChange={(event) =>
+                      setQuestion(event.target.value)
                     }
                     placeholder="Example: What did I learn about Java?"
                     rows={5}
-                    className="w-full resize-none rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
+                    className="w-full resize-none rounded-lg border border-slate-200 p-3 text-sm text-slate-700 outline-none placeholder:text-slate-300 focus:border-slate-400"
                   />
-
 
                   <button
                     type="submit"
                     disabled={asking}
-                    className="w-full rounded-lg bg-slate-900 py-3 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-50"
+                    className="mt-3 w-full rounded-lg bg-slate-900 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-50"
                   >
                     {asking
-                      ? "Thinking..."
+                      ? "AI Thinking..."
                       : "Ask AI"}
                   </button>
 
                 </form>
 
+                {/* AI ANSWER */}
 
                 {answer && (
-                  <div className="mt-5 rounded-xl bg-slate-50 p-4">
+                  <div className="mt-5 rounded-xl border bg-slate-50 p-4">
 
-                    <div className="mb-2 flex items-center gap-2">
+                    <h3 className="mb-2 text-sm font-semibold text-slate-900">
+                      🤖 AI Answer
+                    </h3>
 
-                      <span>
-                        🤖
-                      </span>
-
-                      <h3 className="text-sm font-semibold text-slate-900">
-                        AI Answer
-                      </h3>
-
-                    </div>
-
-                    <p className="whitespace-pre-wrap text-sm leading-6 text-slate-700">
+                    <p className="whitespace-pre-wrap text-sm leading-6 text-slate-600">
                       {answer}
                     </p>
 
@@ -889,16 +925,15 @@ function App() {
 
             </div>
 
-
-            {/* =================================
-                QUICK STATS
-            ================================= */}
+            {/* ==================================
+                STATS
+            ================================== */}
 
             <div className="mt-6 grid grid-cols-2 gap-4">
 
               <div className="rounded-2xl border bg-white p-5 shadow-sm">
 
-                <p className="text-xs text-slate-500">
+                <p className="text-xs font-medium text-slate-500">
                   Total Notes
                 </p>
 
@@ -908,10 +943,9 @@ function App() {
 
               </div>
 
-
               <div className="rounded-2xl border bg-white p-5 shadow-sm">
 
-                <p className="text-xs text-slate-500">
+                <p className="text-xs font-medium text-slate-500">
                   AI Analyzed
                 </p>
 
@@ -920,7 +954,8 @@ function App() {
                     notes.filter(
                       (note) =>
                         note.summary ||
-                        note.keyPoints?.length > 0
+                        note.keyPoints?.length > 0 ||
+                        note.tags?.length > 0
                     ).length
                   }
                 </p>
@@ -929,7 +964,7 @@ function App() {
 
             </div>
 
-          </section>
+          </aside>
 
         </div>
 
@@ -939,5 +974,4 @@ function App() {
   );
 }
 
-export default App;;
-
+export default App;
