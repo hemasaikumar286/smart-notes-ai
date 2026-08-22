@@ -1,16 +1,23 @@
 const express = require("express");
 const mongoose = require("mongoose");
 const Note = require("../models/Note");
+
 const { analyzeNote } = require("../services/aiService");
 const { createEmbedding } = require("../services/embeddingService");
 const protect = require("../middleware/authMiddleware");
 
 const router = express.Router();
 
+const OPENROUTER_URL =
+  "https://openrouter.ai/api/v1/chat/completions";
 
-// ==========================================
+const MODEL =
+  process.env.OPENROUTER_MODEL || "openrouter/free";
+
+
+// ======================================================
 // ANALYZE ONE NOTE WITH AI
-// ==========================================
+// ======================================================
 
 router.post("/summarize/:id", protect, async (req, res) => {
   try {
@@ -25,24 +32,28 @@ router.post("/summarize/:id", protect, async (req, res) => {
       });
     }
 
+    // Generate summary, tags, category, key points
     const aiResult = await analyzeNote(
       note.title,
       note.content
     );
 
+    // Create text used for semantic search
     const textForEmbedding = `
 Title: ${note.title}
 
 Content: ${note.content}
 
-Summary: ${aiResult.summary}
+Summary: ${aiResult.summary || ""}
 
 Tags: ${(aiResult.tags || []).join(", ")}
 
 Category: ${aiResult.category || "Other"}
 `;
 
-    const embedding = await createEmbedding(textForEmbedding);
+    const embedding = await createEmbedding(
+      textForEmbedding
+    );
 
     note.summary = aiResult.summary || "";
     note.keyPoints = aiResult.keyPoints || [];
@@ -68,9 +79,9 @@ Category: ${aiResult.category || "Other"}
 });
 
 
-// ==========================================
+// ======================================================
 // CREATE EMBEDDINGS FOR ALL USER NOTES
-// ==========================================
+// ======================================================
 
 router.post("/embed-all", protect, async (req, res) => {
   try {
@@ -93,7 +104,9 @@ Tags: ${(note.tags || []).join(", ")}
 Category: ${note.category || "Other"}
 `;
 
-      const embedding = await createEmbedding(textForEmbedding);
+      const embedding = await createEmbedding(
+        textForEmbedding
+      );
 
       note.embedding = embedding;
 
@@ -118,9 +131,10 @@ Category: ${note.category || "Other"}
 });
 
 
-// ==========================================
-// ASK MY NOTES - SEMANTIC SEARCH + AI
-// ==========================================
+// ======================================================
+// ASK MY NOTES
+// Semantic Search + OpenRouter
+// ======================================================
 
 router.post("/ask", protect, async (req, res) => {
   try {
@@ -132,19 +146,24 @@ router.post("/ask", protect, async (req, res) => {
       });
     }
 
+    if (!process.env.OPENROUTER_API_KEY) {
+      return res.status(500).json({
+        message: "OPENROUTER_API_KEY is missing",
+      });
+    }
 
-    // --------------------------------------
+
+    // ==================================================
     // CREATE QUESTION EMBEDDING
-    // --------------------------------------
+    // ==================================================
 
-    const questionEmbedding = await createEmbedding(
-      question
-    );
+    const questionEmbedding =
+      await createEmbedding(question);
 
 
-    // --------------------------------------
-    // SEARCH ONLY USER'S NOTES
-    // --------------------------------------
+    // ==================================================
+    // SEARCH USER'S NOTES
+    // ==================================================
 
     const relevantNotes = await Note.aggregate([
       {
@@ -180,9 +199,9 @@ router.post("/ask", protect, async (req, res) => {
     ]);
 
 
-    // --------------------------------------
+    // ==================================================
     // NO NOTES FOUND
-    // --------------------------------------
+    // ==================================================
 
     if (relevantNotes.length === 0) {
       return res.json({
@@ -193,9 +212,9 @@ router.post("/ask", protect, async (req, res) => {
     }
 
 
-    // --------------------------------------
+    // ==================================================
     // BUILD NOTES CONTEXT
-    // --------------------------------------
+    // ==================================================
 
     const notesContext = relevantNotes
       .map((note, index) => {
@@ -224,9 +243,9 @@ ${note.content}
       .join("\n--------------------\n");
 
 
-    // --------------------------------------
-    // GEMINI PROMPT
-    // --------------------------------------
+    // ==================================================
+    // OPENROUTER PROMPT
+    // ==================================================
 
     const prompt = `
 You are an AI assistant for a personal notes application.
@@ -252,30 +271,86 @@ ${notesContext}
 `;
 
 
-    // --------------------------------------
-    // GENERATE AI ANSWER
-    // --------------------------------------
+    // ==================================================
+    // CALL OPENROUTER
+    // ==================================================
 
-    const { GoogleGenAI } = require("@google/genai");
+    const response = await fetch(
+      OPENROUTER_URL,
+      {
+        method: "POST",
 
-    const ai = new GoogleGenAI({
-      apiKey: process.env.GEMINI_API_KEY,
-    });
+        headers: {
+          Authorization:
+            `Bearer ${process.env.OPENROUTER_API_KEY}`,
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.6-flash",
-      contents: prompt,
-    });
+          "Content-Type": "application/json",
 
-    const answer = response.text.trim();
+          "HTTP-Referer":
+            "https://smart-notes-app.vercel.app",
+
+          "X-Title":
+            "Smart Notes AI",
+        },
+
+        body: JSON.stringify({
+          model: MODEL,
+
+          messages: [
+            {
+              role: "system",
+              content:
+                "You are a helpful notes assistant. Answer only from the provided notes.",
+            },
+
+            {
+              role: "user",
+              content: prompt,
+            },
+          ],
+
+          temperature: 0.2,
+        }),
+      }
+    );
 
 
-    // --------------------------------------
+    // ==================================================
+    // READ OPENROUTER RESPONSE
+    // ==================================================
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error(
+        "OpenRouter Ask Error:",
+        JSON.stringify(data, null, 2)
+      );
+
+      throw new Error(
+        data?.error?.message ||
+        `OpenRouter request failed with status ${response.status}`
+      );
+    }
+
+
+    const answer =
+      data?.choices?.[0]?.message?.content;
+
+
+    if (!answer) {
+      throw new Error(
+        "OpenRouter returned an empty answer"
+      );
+    }
+
+
+    // ==================================================
     // RETURN ANSWER + SOURCES
-    // --------------------------------------
+    // ==================================================
 
     res.json({
-      answer,
+      answer: answer.trim(),
 
       sources: relevantNotes.map((note) => ({
         id: note._id,
@@ -285,7 +360,10 @@ ${notesContext}
     });
 
   } catch (error) {
-    console.error("Ask Notes Error:", error);
+    console.error(
+      "Ask Notes Error:",
+      error.message
+    );
 
     res.status(500).json({
       message: "Failed to answer question",
@@ -296,7 +374,6 @@ ${notesContext}
 
 
 module.exports = router;
-
 
 
    
