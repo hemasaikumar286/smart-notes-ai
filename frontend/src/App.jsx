@@ -3,16 +3,10 @@ import { useEffect, useState } from "react";
 import { useAuth } from "./context/AuthContext";
 import Login from "./components/Login";
 import Register from "./components/Register";
-import NoteCard from "./components/NoteCard";
-import NoteModal from "./components/NoteModal";
 
-const API_URL = "http://localhost:5000";
+const API_URL = import.meta.env.VITE_API_URL;
 
 function App() {
-  // ==========================================
-  // AUTHENTICATION
-  // ==========================================
-
   const {
     user,
     token,
@@ -22,58 +16,35 @@ function App() {
 
   const [showRegister, setShowRegister] = useState(false);
 
-
-  // ==========================================
-  // NOTES
-  // ==========================================
-
   const [notes, setNotes] = useState([]);
+
+  const [selectedNote, setSelectedNote] = useState(null);
 
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
 
-  const [editingId, setEditingId] = useState(null);
-
   const [loadingNotes, setLoadingNotes] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
 
-
-  // ==========================================
-  // SEARCH
-  // ==========================================
-
-  const [search, setSearch] = useState("");
-
-
-  // ==========================================
-  // AI
-  // ==========================================
+  const [error, setError] = useState("");
 
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
-  const [sources, setSources] = useState([]);
   const [asking, setAsking] = useState(false);
-
-
-  // ==========================================
-  // NOTE MODAL
-  // ==========================================
-
-  const [selectedNote, setSelectedNote] = useState(null);
-
 
   // ==========================================
   // LOAD NOTES
   // ==========================================
 
   const fetchNotes = async () => {
-    if (!token) {
-      return;
-    }
-
-    setLoadingNotes(true);
+    if (!token) return;
 
     try {
+      setLoadingNotes(true);
+      setError("");
+
       const response = await fetch(
         `${API_URL}/api/notes`,
         {
@@ -94,7 +65,8 @@ function App() {
       setNotes(data);
 
     } catch (error) {
-      console.error("Fetch Notes Error:", error);
+      console.error("Fetch notes error:", error);
+      setError(error.message);
 
     } finally {
       setLoadingNotes(false);
@@ -109,62 +81,79 @@ function App() {
   useEffect(() => {
     if (token) {
       fetchNotes();
-    } else {
-      setNotes([]);
     }
   }, [token]);
 
 
   // ==========================================
-  // CREATE / UPDATE NOTE
+  // SELECT NOTE
   // ==========================================
 
-  const handleSubmitNote = async (e) => {
-    e.preventDefault();
+  const handleSelectNote = (note) => {
+    setSelectedNote(note);
 
-    if (!title.trim() || !content.trim()) {
-      alert("Please enter both title and content.");
+    setTitle(note.title || "");
+    setContent(note.content || "");
+
+    setAnswer("");
+    setError("");
+  };
+
+
+  // ==========================================
+  // NEW NOTE
+  // ==========================================
+
+  const handleNewNote = () => {
+    setSelectedNote(null);
+
+    setTitle("");
+    setContent("");
+
+    setAnswer("");
+    setQuestion("");
+    setError("");
+  };
+
+
+  // ==========================================
+  // SAVE NOTE
+  // ==========================================
+
+  const handleSave = async () => {
+    if (!title.trim()) {
+      setError("Please enter a title.");
       return;
     }
 
-    setSaving(true);
+    if (!content.trim()) {
+      setError("Please enter note content.");
+      return;
+    }
 
     try {
-      let response;
+      setSaving(true);
+      setError("");
 
-      if (editingId) {
-        // UPDATE
-        response = await fetch(
-          `${API_URL}/api/notes/${editingId}`,
-          {
-            method: "PUT",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({
-              title,
-              content,
-            }),
-          }
-        );
-      } else {
-        // CREATE
-        response = await fetch(
-          `${API_URL}/api/notes`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({
-              title,
-              content,
-            }),
-          }
-        );
-      }
+      const url = selectedNote
+        ? `${API_URL}/api/notes/${selectedNote._id}`
+        : `${API_URL}/api/notes`;
+
+      const method = selectedNote ? "PUT" : "POST";
+
+      const response = await fetch(url, {
+        method,
+
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+
+        body: JSON.stringify({
+          title,
+          content,
+        }),
+      });
 
       const data = await response.json();
 
@@ -174,28 +163,27 @@ function App() {
         );
       }
 
-      if (editingId) {
-        setNotes((currentNotes) =>
-          currentNotes.map((note) =>
-            note._id === editingId
-              ? data
-              : note
+      if (selectedNote) {
+        setNotes((previousNotes) =>
+          previousNotes.map((note) =>
+            note._id === data._id ? data : note
           )
         );
       } else {
-        setNotes((currentNotes) => [
+        setNotes((previousNotes) => [
           data,
-          ...currentNotes,
+          ...previousNotes,
         ]);
+
+        setSelectedNote(data);
       }
 
-      setTitle("");
-      setContent("");
-      setEditingId(null);
+      setTitle(data.title || title);
+      setContent(data.content || content);
 
     } catch (error) {
-      console.error("Save Note Error:", error);
-      alert(error.message);
+      console.error("Save note error:", error);
+      setError(error.message);
 
     } finally {
       setSaving(false);
@@ -204,50 +192,27 @@ function App() {
 
 
   // ==========================================
-  // EDIT NOTE
-  // ==========================================
-
-  const handleEdit = (note) => {
-    setEditingId(note._id);
-    setTitle(note.title);
-    setContent(note.content);
-
-    window.scrollTo({
-      top: 0,
-      behavior: "smooth",
-    });
-  };
-
-
-  // ==========================================
-  // CANCEL EDIT
-  // ==========================================
-
-  const handleCancelEdit = () => {
-    setEditingId(null);
-    setTitle("");
-    setContent("");
-  };
-
-
-  // ==========================================
   // DELETE NOTE
   // ==========================================
 
-  const handleDelete = async (id) => {
+  const handleDelete = async () => {
+    if (!selectedNote) return;
+
     const confirmed = window.confirm(
       "Are you sure you want to delete this note?"
     );
 
-    if (!confirmed) {
-      return;
-    }
+    if (!confirmed) return;
 
     try {
+      setDeleting(true);
+      setError("");
+
       const response = await fetch(
-        `${API_URL}/api/notes/${id}`,
+        `${API_URL}/api/notes/${selectedNote._id}`,
         {
           method: "DELETE",
+
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -262,33 +227,43 @@ function App() {
         );
       }
 
-      setNotes((currentNotes) =>
-        currentNotes.filter(
-          (note) => note._id !== id
+      setNotes((previousNotes) =>
+        previousNotes.filter(
+          (note) => note._id !== selectedNote._id
         )
       );
 
-      if (selectedNote?._id === id) {
-        setSelectedNote(null);
-      }
+      handleNewNote();
 
     } catch (error) {
-      console.error("Delete Note Error:", error);
-      alert(error.message);
+      console.error("Delete note error:", error);
+      setError(error.message);
+
+    } finally {
+      setDeleting(false);
     }
   };
 
 
   // ==========================================
-  // AI ANALYZE
+  // AI SUMMARIZE
   // ==========================================
 
-  const handleAnalyze = async (id) => {
+  const handleAnalyze = async () => {
+    if (!selectedNote) {
+      setError("Please select a note first.");
+      return;
+    }
+
     try {
+      setAnalyzing(true);
+      setError("");
+
       const response = await fetch(
-        `${API_URL}/api/ai/summarize/${id}`,
+        `${API_URL}/api/ai/summarize/${selectedNote._id}`,
         {
           method: "POST",
+
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -299,35 +274,26 @@ function App() {
 
       if (!response.ok) {
         throw new Error(
-          data.message ||
-            data.error ||
-            "AI analysis failed"
+          data.message || "AI analysis failed"
         );
       }
 
-      // Update note in state
-      setNotes((currentNotes) =>
-        currentNotes.map((note) =>
-          note._id === id
-            ? {
-                ...note,
-                ...data,
-              }
-            : note
+      // Update selected note
+      setSelectedNote(data);
+
+      // Update note in list
+      setNotes((previousNotes) =>
+        previousNotes.map((note) =>
+          note._id === data._id ? data : note
         )
       );
 
-      // Update open modal if necessary
-      if (selectedNote?._id === id) {
-        setSelectedNote((currentNote) => ({
-          ...currentNote,
-          ...data,
-        }));
-      }
-
     } catch (error) {
-      console.error("AI Analysis Error:", error);
-      alert(error.message);
+      console.error("AI analysis error:", error);
+      setError(error.message);
+
+    } finally {
+      setAnalyzing(false);
     }
   };
 
@@ -340,22 +306,25 @@ function App() {
     e.preventDefault();
 
     if (!question.trim()) {
+      setError("Please enter a question.");
       return;
     }
 
-    setAsking(true);
-    setAnswer("");
-    setSources([]);
-
     try {
+      setAsking(true);
+      setError("");
+      setAnswer("");
+
       const response = await fetch(
         `${API_URL}/api/ai/ask`,
         {
           method: "POST",
+
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
+
           body: JSON.stringify({
             question,
           }),
@@ -366,43 +335,25 @@ function App() {
 
       if (!response.ok) {
         throw new Error(
-          data.message ||
-            data.error ||
-            "Failed to get AI answer"
+          data.message || "AI request failed"
         );
       }
 
-      setAnswer(data.answer || "");
-      setSources(data.sources || []);
+      setAnswer(
+        data.answer ||
+        data.response ||
+        data.message ||
+        "No answer received."
+      );
 
     } catch (error) {
-      console.error("Ask AI Error:", error);
-
-      setAnswer(`Error: ${error.message}`);
-      setSources([]);
+      console.error("Ask AI error:", error);
+      setError(error.message);
 
     } finally {
       setAsking(false);
     }
   };
-
-
-  // ==========================================
-  // FILTER NOTES
-  // ==========================================
-
-  const filteredNotes = notes.filter((note) => {
-    const searchText = search.toLowerCase();
-
-    return (
-      note.title?.toLowerCase().includes(searchText) ||
-      note.content?.toLowerCase().includes(searchText) ||
-      note.category?.toLowerCase().includes(searchText) ||
-      note.tags?.some((tag) =>
-        tag.toLowerCase().includes(searchText)
-      )
-    );
-  });
 
 
   // ==========================================
@@ -448,7 +399,7 @@ function App() {
 
 
   // ==========================================
-  // MAIN APP
+  // DASHBOARD
   // ==========================================
 
   return (
@@ -456,13 +407,11 @@ function App() {
 
       {/* ======================================
           HEADER
-      ======================================= */}
+      ====================================== */}
 
       <header className="border-b bg-white">
 
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-
-          {/* LOGO */}
 
           <div className="flex items-center gap-3">
 
@@ -471,21 +420,17 @@ function App() {
             </div>
 
             <div>
-
               <h1 className="text-xl font-bold text-slate-900">
                 Smart Notes
               </h1>
 
               <p className="text-xs text-slate-500">
-                Your AI-powered second brain
+                AI-powered knowledge manager
               </p>
-
             </div>
 
           </div>
 
-
-          {/* USER */}
 
           <div className="flex items-center gap-4">
 
@@ -503,7 +448,7 @@ function App() {
 
             <button
               onClick={logout}
-              className="rounded-lg border px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
             >
               Logout
             </button>
@@ -517,420 +462,482 @@ function App() {
 
       {/* ======================================
           MAIN
-      ======================================= */}
+      ====================================== */}
 
-      <main className="mx-auto max-w-7xl px-6 py-8">
+      <main className="mx-auto max-w-7xl px-6 py-6">
 
+        {/* ERROR */}
 
-        {/* ====================================
-            WELCOME
-        ===================================== */}
+        {error && (
+          <div className="mb-5 flex items-center justify-between rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
 
-        <section className="mb-8">
-
-          <h2 className="text-3xl font-bold text-slate-900">
-            Welcome back, {user.name}! 👋
-          </h2>
-
-          <p className="mt-2 text-slate-500">
-            Capture your ideas and let AI organize
-            your knowledge.
-          </p>
-
-        </section>
-
-
-        {/* ====================================
-            STATISTICS
-        ===================================== */}
-
-        <section className="mb-8 grid gap-4 sm:grid-cols-3">
-
-          <div className="rounded-xl border bg-white p-5">
-
-            <p className="text-sm text-slate-500">
-              Total Notes
-            </p>
-
-            <p className="mt-2 text-3xl font-bold text-slate-900">
-              {notes.length}
-            </p>
-
-          </div>
-
-
-          <div className="rounded-xl border bg-white p-5">
-
-            <p className="text-sm text-slate-500">
-              AI Analyzed
-            </p>
-
-            <p className="mt-2 text-3xl font-bold text-slate-900">
-              {
-                notes.filter(
-                  (note) => note.summary
-                ).length
-              }
-            </p>
-
-          </div>
-
-
-          <div className="rounded-xl border bg-white p-5">
-
-            <p className="text-sm text-slate-500">
-              Categories
-            </p>
-
-            <p className="mt-2 text-3xl font-bold text-slate-900">
-              {
-                new Set(
-                  notes
-                    .map((note) => note.category)
-                    .filter(Boolean)
-                ).size
-              }
-            </p>
-
-          </div>
-
-        </section>
-
-
-        {/* ====================================
-            CREATE NOTE
-        ===================================== */}
-
-        <section className="mb-8 rounded-2xl border bg-white p-6 shadow-sm">
-
-          <div className="mb-5 flex items-center justify-between">
-
-            <div>
-
-              <h2 className="text-xl font-bold text-slate-900">
-
-                {editingId
-                  ? "✏️ Edit Note"
-                  : "📝 Create New Note"}
-
-              </h2>
-
-              <p className="mt-1 text-sm text-slate-500">
-                {editingId
-                  ? "Update your note."
-                  : "Write anything and let AI organize it."}
-              </p>
-
-            </div>
-
-          </div>
-
-
-          <form
-            onSubmit={handleSubmitNote}
-            className="space-y-4"
-          >
-
-            {/* TITLE */}
-
-            <input
-              type="text"
-              value={title}
-              onChange={(e) =>
-                setTitle(e.target.value)
-              }
-              placeholder="Note title..."
-              className="w-full rounded-lg border px-4 py-3 text-lg font-medium outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
-            />
-
-
-            {/* CONTENT */}
-
-            <textarea
-              value={content}
-              onChange={(e) =>
-                setContent(e.target.value)
-              }
-              placeholder="Write your note here..."
-              rows={7}
-              className="w-full resize-y rounded-lg border px-4 py-3 text-sm leading-7 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
-            />
-
-
-            {/* BUTTONS */}
-
-            <div className="flex flex-wrap gap-3">
-
-              <button
-                type="submit"
-                disabled={saving}
-                className="rounded-lg bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {saving
-                  ? "Saving..."
-                  : editingId
-                  ? "Update Note"
-                  : "Create Note"}
-              </button>
-
-
-              {editingId && (
-                <button
-                  type="button"
-                  onClick={handleCancelEdit}
-                  className="rounded-lg border px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                >
-                  Cancel
-                </button>
-              )}
-
-            </div>
-
-          </form>
-
-        </section>
-
-
-        {/* ====================================
-            ASK MY NOTES
-        ===================================== */}
-
-        <section className="mb-8 rounded-2xl border bg-white p-6 shadow-sm">
-
-          <div className="mb-5">
-
-            <h2 className="text-xl font-bold text-slate-900">
-              🤖 Ask My Notes
-            </h2>
-
-            <p className="mt-1 text-sm text-slate-500">
-              Ask questions and AI will search your
-              notes intelligently.
-            </p>
-
-          </div>
-
-
-          <form
-            onSubmit={handleAsk}
-            className="flex flex-col gap-3 sm:flex-row"
-          >
-
-            <input
-              type="text"
-              value={question}
-              onChange={(e) =>
-                setQuestion(e.target.value)
-              }
-              placeholder="Example: What did I learn about Java?"
-              className="flex-1 rounded-lg border px-4 py-3 text-sm outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
-            />
+            <span>
+              {error}
+            </span>
 
             <button
-              type="submit"
-              disabled={asking || !question.trim()}
-              className="rounded-lg bg-slate-900 px-6 py-3 text-sm font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={() => setError("")}
+              className="ml-4 font-bold"
             >
-              {asking ? "Thinking..." : "Ask AI"}
+              ×
             </button>
 
-          </form>
+          </div>
+        )}
 
 
-          {/* AI ANSWER */}
-
-          {answer && (
-            <div className="mt-6 rounded-xl border bg-slate-50 p-5">
-
-              <h3 className="mb-3 font-semibold text-slate-900">
-                ✨ AI Answer
-              </h3>
-
-              <p className="whitespace-pre-wrap text-sm leading-7 text-slate-700">
-                {answer}
-              </p>
+        <div className="grid gap-6 lg:grid-cols-12">
 
 
-              {/* SOURCES */}
+          {/* ==================================
+              SIDEBAR
+          ================================== */}
 
-              {sources.length > 0 && (
-                <div className="mt-6 border-t pt-5">
+          <aside className="lg:col-span-3">
 
-                  <h4 className="mb-3 text-sm font-semibold text-slate-900">
-                    📚 Sources from your notes
-                  </h4>
+            <div className="rounded-2xl border bg-white shadow-sm">
 
-                  <div className="space-y-2">
+              <div className="flex items-center justify-between border-b p-4">
 
-                    {sources.map((source) => (
-                      <div
-                        key={source.id}
-                        className="flex items-center justify-between rounded-lg border bg-white px-4 py-3"
+                <div>
+                  <h2 className="font-semibold text-slate-900">
+                    My Notes
+                  </h2>
+
+                  <p className="text-xs text-slate-500">
+                    {notes.length} note
+                    {notes.length !== 1 ? "s" : ""}
+                  </p>
+                </div>
+
+                <button
+                  onClick={handleNewNote}
+                  className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-700"
+                >
+                  + New
+                </button>
+
+              </div>
+
+
+              <div className="max-h-[600px] overflow-y-auto">
+
+                {loadingNotes ? (
+
+                  <div className="p-6 text-center text-sm text-slate-500">
+                    Loading notes...
+                  </div>
+
+                ) : notes.length === 0 ? (
+
+                  <div className="p-6 text-center">
+
+                    <div className="mb-3 text-3xl">
+                      📝
+                    </div>
+
+                    <p className="text-sm font-medium text-slate-700">
+                      No notes yet
+                    </p>
+
+                    <p className="mt-1 text-xs text-slate-500">
+                      Create your first note.
+                    </p>
+
+                  </div>
+
+                ) : (
+
+                  <div className="divide-y">
+
+                    {notes.map((note) => (
+
+                      <button
+                        key={note._id}
+                        onClick={() =>
+                          handleSelectNote(note)
+                        }
+                        className={`w-full p-4 text-left transition hover:bg-slate-50 ${
+                          selectedNote?._id === note._id
+                            ? "bg-slate-100"
+                            : ""
+                        }`}
                       >
 
-                        <div className="flex items-center gap-3">
+                        <h3 className="truncate text-sm font-semibold text-slate-900">
+                          {note.title || "Untitled"}
+                        </h3>
 
-                          <span className="text-lg">
-                            📄
-                          </span>
+                        <p className="mt-1 line-clamp-2 text-xs text-slate-500">
+                          {note.content || "No content"}
+                        </p>
 
-                          <span className="text-sm font-medium text-slate-700">
-                            {source.title}
-                          </span>
-
-                        </div>
-
-
-                        {source.score !==
-                          undefined && (
-                          <span className="text-xs text-slate-400">
-                            {(
-                              source.score * 100
-                            ).toFixed(0)}
-                            % match
+                        {note.category && (
+                          <span className="mt-2 inline-block rounded-full bg-slate-100 px-2 py-1 text-[10px] font-medium text-slate-600">
+                            {note.category}
                           </span>
                         )}
 
-                      </div>
+                      </button>
+
                     ))}
 
                   </div>
 
+                )}
+
+              </div>
+
+            </div>
+
+          </aside>
+
+
+          {/* ==================================
+              NOTE EDITOR
+          ================================== */}
+
+          <section className="lg:col-span-5">
+
+            <div className="rounded-2xl border bg-white shadow-sm">
+
+              <div className="flex items-center justify-between border-b p-4">
+
+                <div>
+
+                  <h2 className="font-semibold text-slate-900">
+                    {selectedNote
+                      ? "Edit Note"
+                      : "New Note"}
+                  </h2>
+
+                  <p className="text-xs text-slate-500">
+                    Write your thoughts and let AI organize them.
+                  </p>
+
                 </div>
+
+
+                {selectedNote && (
+                  <button
+                    onClick={handleDelete}
+                    disabled={deleting}
+                    className="rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                  >
+                    {deleting
+                      ? "Deleting..."
+                      : "Delete"}
+                  </button>
+                )}
+
+              </div>
+
+
+              <div className="p-5">
+
+                <input
+                  value={title}
+                  onChange={(e) =>
+                    setTitle(e.target.value)
+                  }
+                  placeholder="Note title"
+                  className="mb-4 w-full border-0 border-b border-slate-200 pb-3 text-xl font-semibold text-slate-900 outline-none placeholder:text-slate-300 focus:border-slate-500"
+                />
+
+
+                <textarea
+                  value={content}
+                  onChange={(e) =>
+                    setContent(e.target.value)
+                  }
+                  placeholder="Start writing your note..."
+                  rows={18}
+                  className="w-full resize-none border-0 text-sm leading-7 text-slate-700 outline-none placeholder:text-slate-300"
+                />
+
+
+                <div className="mt-4 flex flex-wrap gap-3">
+
+                  <button
+                    onClick={handleSave}
+                    disabled={saving}
+                    className="rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-50"
+                  >
+                    {saving
+                      ? "Saving..."
+                      : selectedNote
+                        ? "Update Note"
+                        : "Save Note"}
+                  </button>
+
+
+                  {selectedNote && (
+                    <button
+                      onClick={handleAnalyze}
+                      disabled={analyzing}
+                      className="rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                    >
+                      {analyzing
+                        ? "AI Analyzing..."
+                        : "✨ Analyze with AI"}
+                    </button>
+                  )}
+
+                </div>
+
+              </div>
+
+            </div>
+
+
+            {/* =================================
+                AI ANALYSIS
+            ================================= */}
+
+            {selectedNote &&
+              (selectedNote.summary ||
+                selectedNote.keyPoints?.length > 0 ||
+                selectedNote.tags?.length > 0) && (
+
+                <div className="mt-6 rounded-2xl border bg-white shadow-sm">
+
+                  <div className="border-b p-4">
+
+                    <h2 className="font-semibold text-slate-900">
+                      ✨ AI Analysis
+                    </h2>
+
+                  </div>
+
+
+                  <div className="space-y-5 p-5">
+
+                    {selectedNote.summary && (
+                      <div>
+
+                        <h3 className="mb-2 text-sm font-semibold text-slate-900">
+                          Summary
+                        </h3>
+
+                        <p className="text-sm leading-6 text-slate-600">
+                          {selectedNote.summary}
+                        </p>
+
+                      </div>
+                    )}
+
+
+                    {selectedNote.keyPoints?.length > 0 && (
+                      <div>
+
+                        <h3 className="mb-2 text-sm font-semibold text-slate-900">
+                          Key Points
+                        </h3>
+
+                        <ul className="space-y-2">
+
+                          {selectedNote.keyPoints.map(
+                            (point, index) => (
+                              <li
+                                key={index}
+                                className="flex gap-2 text-sm text-slate-600"
+                              >
+                                <span>•</span>
+                                <span>{point}</span>
+                              </li>
+                            )
+                          )}
+
+                        </ul>
+
+                      </div>
+                    )}
+
+
+                    {selectedNote.tags?.length > 0 && (
+                      <div>
+
+                        <h3 className="mb-2 text-sm font-semibold text-slate-900">
+                          Tags
+                        </h3>
+
+                        <div className="flex flex-wrap gap-2">
+
+                          {selectedNote.tags.map(
+                            (tag, index) => (
+                              <span
+                                key={index}
+                                className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700"
+                              >
+                                #{tag}
+                              </span>
+                            )
+                          )}
+
+                        </div>
+
+                      </div>
+                    )}
+
+
+                    {selectedNote.category && (
+                      <div>
+
+                        <h3 className="mb-2 text-sm font-semibold text-slate-900">
+                          Category
+                        </h3>
+
+                        <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-medium text-white">
+                          {selectedNote.category}
+                        </span>
+
+                      </div>
+                    )}
+
+                  </div>
+
+                </div>
+
               )}
 
-            </div>
-          )}
-
-        </section>
+          </section>
 
 
-        {/* ====================================
-            NOTES HEADER
-        ===================================== */}
+          {/* ==================================
+              ASK AI
+          ================================== */}
 
-        <section>
+          <section className="lg:col-span-4">
 
-          <div className="mb-5 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+            <div className="rounded-2xl border bg-white shadow-sm">
 
-            <div>
+              <div className="border-b p-5">
 
-              <h2 className="text-2xl font-bold text-slate-900">
-                My Notes
-              </h2>
+                <div className="mb-1 flex items-center gap-2">
 
-              <p className="mt-1 text-sm text-slate-500">
-                {filteredNotes.length}{" "}
-                {filteredNotes.length === 1
-                  ? "note"
-                  : "notes"}
-              </p>
+                  <span className="text-xl">
+                    🤖
+                  </span>
 
-            </div>
+                  <h2 className="font-semibold text-slate-900">
+                    Ask My Notes
+                  </h2>
 
-
-            {/* SEARCH */}
-
-            <div className="w-full sm:w-80">
-
-              <input
-                type="text"
-                value={search}
-                onChange={(e) =>
-                  setSearch(e.target.value)
-                }
-                placeholder="🔍 Search notes..."
-                className="w-full rounded-lg border bg-white px-4 py-3 text-sm outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
-              />
-
-            </div>
-
-          </div>
-
-
-          {/* LOADING */}
-
-          {loadingNotes && (
-            <div className="rounded-xl border bg-white p-10 text-center">
-
-              <p className="text-slate-500">
-                Loading your notes...
-              </p>
-
-            </div>
-          )}
-
-
-          {/* EMPTY */}
-
-          {!loadingNotes &&
-            filteredNotes.length === 0 && (
-              <div className="rounded-2xl border border-dashed bg-white p-12 text-center">
-
-                <div className="mb-4 text-5xl">
-                  📝
                 </div>
 
-                <h3 className="text-lg font-semibold text-slate-900">
-                  {search
-                    ? "No notes found"
-                    : "No notes yet"}
-                </h3>
-
-                <p className="mt-2 text-sm text-slate-500">
-                  {search
-                    ? "Try a different search."
-                    : "Create your first note above."}
+                <p className="text-xs leading-5 text-slate-500">
+                  Ask questions about your notes. AI will search your knowledge base and answer using your information.
                 </p>
 
               </div>
-            )}
 
 
-          {/* NOTES GRID */}
+              <div className="p-5">
 
-          {!loadingNotes &&
-            filteredNotes.length > 0 && (
-              <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+                <form
+                  onSubmit={handleAsk}
+                  className="space-y-3"
+                >
 
-                {filteredNotes.map((note) => (
-                  <NoteCard
-                    key={note._id}
-                    note={note}
-                    onEdit={handleEdit}
-                    onDelete={handleDelete}
-                    onAnalyze={handleAnalyze}
-                    onView={(noteToView) =>
-                      setSelectedNote(
-                        noteToView
-                      )
+                  <textarea
+                    value={question}
+                    onChange={(e) =>
+                      setQuestion(e.target.value)
                     }
+                    placeholder="Example: What did I learn about Java?"
+                    rows={5}
+                    className="w-full resize-none rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
                   />
-                ))}
+
+
+                  <button
+                    type="submit"
+                    disabled={asking}
+                    className="w-full rounded-lg bg-slate-900 py-3 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-50"
+                  >
+                    {asking
+                      ? "Thinking..."
+                      : "Ask AI"}
+                  </button>
+
+                </form>
+
+
+                {answer && (
+                  <div className="mt-5 rounded-xl bg-slate-50 p-4">
+
+                    <div className="mb-2 flex items-center gap-2">
+
+                      <span>
+                        🤖
+                      </span>
+
+                      <h3 className="text-sm font-semibold text-slate-900">
+                        AI Answer
+                      </h3>
+
+                    </div>
+
+                    <p className="whitespace-pre-wrap text-sm leading-6 text-slate-700">
+                      {answer}
+                    </p>
+
+                  </div>
+                )}
 
               </div>
-            )}
 
-        </section>
+            </div>
+
+
+            {/* =================================
+                QUICK STATS
+            ================================= */}
+
+            <div className="mt-6 grid grid-cols-2 gap-4">
+
+              <div className="rounded-2xl border bg-white p-5 shadow-sm">
+
+                <p className="text-xs text-slate-500">
+                  Total Notes
+                </p>
+
+                <p className="mt-2 text-3xl font-bold text-slate-900">
+                  {notes.length}
+                </p>
+
+              </div>
+
+
+              <div className="rounded-2xl border bg-white p-5 shadow-sm">
+
+                <p className="text-xs text-slate-500">
+                  AI Analyzed
+                </p>
+
+                <p className="mt-2 text-3xl font-bold text-slate-900">
+                  {
+                    notes.filter(
+                      (note) =>
+                        note.summary ||
+                        note.keyPoints?.length > 0
+                    ).length
+                  }
+                </p>
+
+              </div>
+
+            </div>
+
+          </section>
+
+        </div>
 
       </main>
-
-
-      {/* ======================================
-          NOTE MODAL
-      ======================================= */}
-
-      {selectedNote && (
-        <NoteModal
-          note={selectedNote}
-          onClose={() =>
-            setSelectedNote(null)
-          }
-        />
-      )}
 
     </div>
   );
 }
 
-export default App;
+export default App;;
+

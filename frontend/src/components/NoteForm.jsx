@@ -1,131 +1,232 @@
 import { useEffect, useState } from "react";
+import { useAuth } from "../context/AuthContext";
 
-function NoteForm({
-  editingNote,
-  onNoteCreated,
-  onNoteUpdated,
-}) {
+const API_URL = import.meta.env.VITE_API_URL;
+
+function NoteForm({ editingNote, onSaved, onCancel }) {
+  const { token } = useAuth();
+
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
-  const [loading, setLoading] = useState(false);
 
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  // Load note data when editing
   useEffect(() => {
     if (editingNote) {
-      setTitle(editingNote.title);
-      setContent(editingNote.content);
+      setTitle(editingNote.title || "");
+      setContent(editingNote.content || "");
     } else {
       setTitle("");
       setContent("");
     }
+
+    setError("");
   }, [editingNote]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!title.trim() || !content.trim()) {
-      alert("Please enter both title and content.");
+    setError("");
+
+    if (!title.trim()) {
+      setError("Please enter a title.");
+      return;
+    }
+
+    if (!content.trim()) {
+      setError("Please enter some content.");
+      return;
+    }
+
+    if (!token) {
+      setError("You must be logged in.");
       return;
     }
 
     setLoading(true);
 
     try {
-      const url = editingNote
-        ? `http://localhost:5000/api/notes/${editingNote._id}`
-        : "http://localhost:5000/api/notes";
+      const isEditing = Boolean(editingNote);
 
-      const method = editingNote ? "PUT" : "POST";
+      const url = isEditing
+        ? `${API_URL}/api/notes/${editingNote._id}`
+        : `${API_URL}/api/notes`;
 
       const response = await fetch(url, {
-        method,
+        method: isEditing ? "PUT" : "POST",
+
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
+
         body: JSON.stringify({
-          title,
-          content,
+          title: title.trim(),
+          content: content.trim(),
         }),
       });
 
-      if (!response.ok) {
-        throw new Error("Request failed");
-      }
-
       const data = await response.json();
 
-      if (editingNote) {
-        onNoteUpdated(data);
-      } else {
-        onNoteCreated(data);
+      if (!response.ok) {
+        throw new Error(
+          data.message || "Failed to save note"
+        );
       }
 
+      // Clear form
       setTitle("");
       setContent("");
 
+      // Tell parent component the note was saved
+      if (onSaved) {
+        onSaved(data);
+      }
+
     } catch (error) {
-      console.error(error);
-      alert("Failed to save note.");
+      console.error("Save note error:", error);
+
+      setError(
+        error.message || "Something went wrong while saving the note."
+      );
+
     } finally {
       setLoading(false);
     }
   };
 
+  const handleCancel = () => {
+    setTitle("");
+    setContent("");
+    setError("");
+
+    if (onCancel) {
+      onCancel();
+    }
+  };
+
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="space-y-4"
-    >
+    <div className="rounded-2xl bg-white p-6 shadow-sm">
 
-      <div>
+      {/* Header */}
+      <div className="mb-6 flex items-center justify-between">
 
-        <label className="mb-2 block text-sm font-medium">
-          Title
-        </label>
+        <div>
+          <h2 className="text-xl font-bold text-slate-900">
+            {editingNote ? "Edit Note" : "Create Note"}
+          </h2>
 
-        <input
-          type="text"
-          placeholder="Enter note title..."
-          value={title}
-          onChange={(e) =>
-            setTitle(e.target.value)
-          }
-          className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-slate-500"
-        />
+          <p className="mt-1 text-sm text-slate-500">
+            {editingNote
+              ? "Update your note"
+              : "Capture something you want to remember"}
+          </p>
+        </div>
 
-      </div>
-
-      <div>
-
-        <label className="mb-2 block text-sm font-medium">
-          Content
-        </label>
-
-        <textarea
-          placeholder="Write your note here..."
-          value={content}
-          onChange={(e) =>
-            setContent(e.target.value)
-          }
-          rows="8"
-          className="w-full resize-none rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-slate-500"
-        />
+        {editingNote && (
+          <button
+            type="button"
+            onClick={handleCancel}
+            className="rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100"
+          >
+            Cancel
+          </button>
+        )}
 
       </div>
 
-      <button
-        type="submit"
-        disabled={loading}
-        className="rounded-lg bg-slate-900 px-5 py-3 font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+      {/* Error */}
+      {error && (
+        <div className="mb-5 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-600">
+          {error}
+        </div>
+      )}
+
+      {/* Form */}
+      <form
+        onSubmit={handleSubmit}
+        className="space-y-5"
       >
-        {loading
-          ? "Saving..."
-          : editingNote
-          ? "Update Note"
-          : "Save Note"}
-      </button>
 
-    </form>
+        {/* Title */}
+        <div>
+
+          <label
+            htmlFor="note-title"
+            className="mb-2 block text-sm font-medium text-slate-700"
+          >
+            Title
+          </label>
+
+          <input
+            id="note-title"
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Enter note title..."
+            disabled={loading}
+            className="w-full rounded-lg border border-slate-300 px-4 py-3 text-slate-900 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200 disabled:bg-slate-100"
+          />
+
+        </div>
+
+        {/* Content */}
+        <div>
+
+          <label
+            htmlFor="note-content"
+            className="mb-2 block text-sm font-medium text-slate-700"
+          >
+            Content
+          </label>
+
+          <textarea
+            id="note-content"
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            placeholder="Write your note here..."
+            rows={8}
+            disabled={loading}
+            className="w-full resize-y rounded-lg border border-slate-300 px-4 py-3 text-slate-900 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200 disabled:bg-slate-100"
+          />
+
+        </div>
+
+        {/* Buttons */}
+        <div className="flex gap-3">
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="rounded-lg bg-slate-900 px-5 py-3 font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {loading
+              ? "Saving..."
+              : editingNote
+              ? "Update Note"
+              : "Save Note"}
+          </button>
+
+          {editingNote && (
+            <button
+              type="button"
+              onClick={handleCancel}
+              disabled={loading}
+              className="rounded-lg border border-slate-300 px-5 py-3 font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+          )}
+
+        </div>
+
+      </form>
+
+    </div>
   );
 }
 
 export default NoteForm;
+

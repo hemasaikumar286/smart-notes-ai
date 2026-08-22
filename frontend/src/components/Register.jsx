@@ -1,12 +1,15 @@
 import { useState } from "react";
 import { useAuth } from "../context/AuthContext";
 
+const API_URL = import.meta.env.VITE_API_URL;
+
 function Register({ onLogin }) {
   const { login } = useAuth();
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
 
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -15,23 +18,35 @@ function Register({ onLogin }) {
     e.preventDefault();
 
     setError("");
+
+    // Check password
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters long.");
+      return;
+    }
+
+    // Check password confirmation
+    if (password !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+
     setLoading(true);
 
     try {
-      const response = await fetch(
-        "http://localhost:5000/api/auth/register",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            name,
-            email,
-            password,
-          }),
-        }
-      );
+      const response = await fetch(`${API_URL}/api/auth/register`, {
+        method: "POST",
+
+        headers: {
+          "Content-Type": "application/json",
+        },
+
+        body: JSON.stringify({
+          name,
+          email,
+          password,
+        }),
+      });
 
       const data = await response.json();
 
@@ -41,23 +56,30 @@ function Register({ onLogin }) {
         );
       }
 
+      // Save token and user through AuthContext
       login(data);
 
     } catch (error) {
-      setError(error.message);
+      console.error("Registration error:", error);
+
+      setError(
+        error.message ||
+          "Something went wrong. Please try again."
+      );
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-100 p-4">
+    <div className="flex min-h-screen items-center justify-center bg-slate-100 px-4 py-8">
 
-      <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-lg">
+      <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-xl">
 
+        {/* Logo / Heading */}
         <div className="mb-8 text-center">
 
-          <div className="mb-3 text-4xl">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-900 text-3xl">
             🧠
           </div>
 
@@ -72,74 +94,124 @@ function Register({ onLogin }) {
         </div>
 
 
-        <form onSubmit={handleSubmit} className="space-y-5">
+        {/* Register Form */}
+        <form
+          onSubmit={handleSubmit}
+          className="space-y-5"
+        >
 
+          {/* Name */}
           <div>
 
-            <label className="mb-2 block text-sm font-medium text-slate-700">
+            <label
+              htmlFor="name"
+              className="mb-2 block text-sm font-medium text-slate-700"
+            >
               Name
             </label>
 
             <input
+              id="name"
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Your name"
+              autoComplete="name"
               required
-              className="w-full rounded-lg border px-4 py-3 outline-none focus:ring-2 focus:ring-slate-400"
+              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-slate-900 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
             />
 
           </div>
 
 
+          {/* Email */}
           <div>
 
-            <label className="mb-2 block text-sm font-medium text-slate-700">
+            <label
+              htmlFor="email"
+              className="mb-2 block text-sm font-medium text-slate-700"
+            >
               Email
             </label>
 
             <input
+              id="email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
+              autoComplete="email"
               required
-              className="w-full rounded-lg border px-4 py-3 outline-none focus:ring-2 focus:ring-slate-400"
+              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-slate-900 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
             />
 
           </div>
 
 
+          {/* Password */}
           <div>
 
-            <label className="mb-2 block text-sm font-medium text-slate-700">
+            <label
+              htmlFor="password"
+              className="mb-2 block text-sm font-medium text-slate-700"
+            >
               Password
             </label>
 
             <input
+              id="password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="At least 6 characters"
+              autoComplete="new-password"
               minLength={6}
               required
-              className="w-full rounded-lg border px-4 py-3 outline-none focus:ring-2 focus:ring-slate-400"
+              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-slate-900 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
             />
 
           </div>
 
 
+          {/* Confirm Password */}
+          <div>
+
+            <label
+              htmlFor="confirmPassword"
+              className="mb-2 block text-sm font-medium text-slate-700"
+            >
+              Confirm Password
+            </label>
+
+            <input
+              id="confirmPassword"
+              type="password"
+              value={confirmPassword}
+              onChange={(e) =>
+                setConfirmPassword(e.target.value)
+              }
+              placeholder="Repeat your password"
+              autoComplete="new-password"
+              required
+              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-slate-900 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+            />
+
+          </div>
+
+
+          {/* Error */}
           {error && (
-            <div className="rounded-lg bg-red-50 p-3 text-sm text-red-600">
+            <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-600">
               {error}
             </div>
           )}
 
 
+          {/* Register Button */}
           <button
             type="submit"
             disabled={loading}
-            className="w-full rounded-lg bg-slate-900 py-3 font-semibold text-white hover:bg-slate-700 disabled:opacity-50"
+            className="w-full rounded-xl bg-slate-900 px-4 py-3 font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {loading
               ? "Creating account..."
@@ -149,11 +221,15 @@ function Register({ onLogin }) {
         </form>
 
 
+        {/* Login Link */}
         <div className="mt-6 text-center text-sm text-slate-500">
 
-          Already have an account?
+          <span>
+            Already have an account?
+          </span>
 
           <button
+            type="button"
             onClick={onLogin}
             className="ml-1 font-semibold text-slate-900 hover:underline"
           >
